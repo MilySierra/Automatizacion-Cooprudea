@@ -1,0 +1,2216 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "\n\nconst items = $('GetParametrosNormalizados').all();\n\nconst filasDebito = items.filter(item => item.json.concepto === \"ABONO INTERESES AHORROS\");\nconst totalDebito = filasDebito.reduce((acc, item) => acc + (parseFloat(item.json.debito) || 0), 0);\n\nconst listaGastos = [\n  \"COMISION DOMICILIACION\",\n  \"COMISION REC CORRESPONSAL\",\n  \"COMISION REC SUCURSAL VIRTUAL\",\n  \"IMPTO GOBIERNO 4X1000\",\n  \"IVA COMISION DOMICILIACION\",\n  \"IVA COMISION REC CORRESPONSAL\",\n  \"IVA COMISION REC SUC VIRTUAL\",\n  \"COBRO IVA PAGOS AUTOMATICOS\",\n  \"RETENCION EN LA FUENTE\",\n  \"SERVICIO PAGO DE NOMINA\",\n  \"COMISION RECAUDO CAJA\",\n  \"IVA COMISION RECAUDO CAJA\",\n  \"COMISION REC CAJERO AUTOMATIC\",\n  \"IVA COMISION REC CAJERO AUTOM\"\n];\n\nconst gastos = {};\nlet totalCredito = 0;\n\nfor (const concepto of listaGastos) {\n  const filas = items.filter(i => i.json.concepto === concepto);\n  const valor = filas.reduce((acc, fila) => acc + (parseFloat(fila.json.credito) || 0), 0);\n  gastos[concepto] = valor;\n  totalCredito += valor;\n}\n\nreturn [{ json: {totalDebito, totalCredito, gastos } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1344,
+        1136
+      ],
+      "id": "a873a216-fcb2-4e1d-91ed-ff960eb3e76e",
+      "name": "GetTotalDebito/CreditoAndSaldos",
+      "executeOnce": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Obtener gastos bancarios (debitos y creditos) en el rango de fechas seleccionado\nconst items = $('GetFechaFormatoMovimientos').all();\n\nconst listaGastos = [\n  \"COMISION DOMICILIACION\",\n  \"COMISION REC CORRESPONSAL\",\n  \"COMISION REC SUCURSAL VIRTUAL\",\n  \"IMPTO GOBIERNO 4X1000\",\n  \"IVA COMISION DOMICILIACION\",\n  \"IVA COMISION REC CORRESPONSAL\",\n  \"IVA COMISION REC SUC VIRTUAL\",\n  \"COBRO IVA PAGOS AUTOMATICOS\",\n  \"RETENCION EN LA FUENTE\",\n  \"SERVICIO PAGO DE NOMINA\",\n  \"COMISION RECAUDO CAJA\",\n  \"IVA COMISION RECAUDO CAJA\",\n  \"COMISION REC CAJERO AUTOMATIC\",\n  \"IVA COMISION REC CAJERO AUTOM\"\n];\n\n// ── 1. Obtener el rango de fechas del formulario (formato YYYY-MM-DD) ──\nconst formData = $('Upload your file here').first().json;\n\nconst [anioU, mesU, diaU] = formData['Fecha última conciliación'].split('-');\nconst fechaUltima = new Date(anioU, mesU - 1, diaU);\n\nconst [anioN, mesN, diaN] = formData['Nueva fecha conciliación'].split('-');\nconst fechaNueva = new Date(anioN, mesN - 1, diaN);\n\nconst fechaInicio = new Date(fechaUltima);\nfechaInicio.setDate(fechaInicio.getDate() + 1);\n\n// ── 2. Excluir la fila TOTAL que agregamos en Code in JavaScript ──\nconst transacciones = items.filter(i => i.json.concepto !== 'TOTAL');\n\n// ── 3. Filtrar transacciones dentro del rango [fechaInicio, fechaNueva] ──\nconst transaccionesRango = transacciones.filter(i => {\n  const [dia, mes, anio] = i.json.fecha.split('/');\n  const fecha = new Date(anio, mes - 1, dia);\n  return fecha >= fechaInicio && fecha <= fechaNueva;\n});\n\n// ── 4. Excluir los gastos bancarios ───────────────────────────\nconst listaGastosUpper = listaGastos.map(g => g.toUpperCase().trim());\nconst transaccionesSinGastos = transaccionesRango.filter(i => {\n  const concepto = i.json.concepto?.toString().toUpperCase().trim() || '';\n  return !listaGastosUpper.includes(concepto);\n});\n\nreturn transaccionesSinGastos;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        560
+      ],
+      "id": "362ad393-3779-4685-98e2-61ff4669d4e4",
+      "name": "GetTransaccionesUltimoDiaSinGastosBancarios",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const code1Output = $('GetTotalDebito/CreditoAndSaldos').all();\n\nconst gastos = code1Output[0].json.gastos || {};\n\nconst papelRetiros = $('GetFechaNormalizadaRetirosNoContPend').all();\n\nconst resultadoRetiros = papelRetiros.map(i => ({ json: { ...i.json } }));\n\nfor (const [concepto, valor] of Object.entries(gastos)) {\n\n  const indice = resultadoRetiros.findIndex(\n    i => i.json.concepto?.toString().trim().toUpperCase() === concepto.toUpperCase()\n  );\n\n  if (indice !== -1) {\n    resultadoRetiros[indice].json.valor = valor;\n  } else {\n    resultadoRetiros.push({ json: { concepto: concepto, valor: valor } });\n  }\n}\n\nreturn resultadoRetiros;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        1232
+      ],
+      "id": "f34690d3-c9e8-4146-94a4-a0d7382ed22e",
+      "name": "UpdateGastosBancariosInRetirosNoContPend",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const code1Output = $('GetTotalDebito/CreditoAndSaldos').all();\n\nconst totalDebito = parseFloat(code1Output[0].json.totalDebito) || 0;\n\nconst papelTrabajo = $('GetFechaNormalizadaConsigNoContPendiente').all();\n\nconst indice = papelTrabajo.findIndex(\n  i => i.json.concepto && i.json.concepto.toString().trim().toUpperCase() \n       === 'ABONO INTERESES AHORROS'\n);\n\nconst resultado = papelTrabajo.map(i => ({ json: { ...i.json } }));\n\nif (indice !== -1) {\n  resultado[indice].json.valor = totalDebito;\n} else {\n  resultado.push({\n    json: {\n      concepto: 'ABONO INTERESES AHORROS',\n      valor: totalDebito\n    }\n  });\n}\n\nreturn resultado;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        1040
+      ],
+      "id": "7a401912-4e9d-4980-830b-5ab8d47d74de",
+      "name": "UpdateIngresosBancariosInConsigNoContPend",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('getFechaFormatoNormal').all();\n\n// Excluir filas vacías — usar DESCRIPCION que es la columna correcta\nconst transacciones = items.filter(i => i.json.descripcion);\n\n// Obtener fechas del formulario (formato YYYY-MM-DD)\nconst formData = $('Upload your file here').first().json;\n\nconst [anioU, mesU, diaU] = formData['Fecha última conciliación'].split('-');\nconst fechaUltima = new Date(anioU, mesU - 1, diaU);\n\nconst [anioN, mesN, diaN] = formData['Nueva fecha conciliación'].split('-');\nconst fechaNueva = new Date(anioN, mesN - 1, diaN);\n\n// El rango empieza al día siguiente de la última fecha conciliada\nconst fechaInicio = new Date(fechaUltima);\nfechaInicio.setDate(fechaInicio.getDate() + 1);\n\n// Filtrar transacciones dentro del rango [fechaInicio, fechaNueva]\nconst transaccionesRango = transacciones.filter(i => {\n  const partes = i.json.fecha.split('/');\n  const fecha = new Date(partes[2], partes[1] - 1, partes[0]);\n  return fecha >= fechaInicio && fecha <= fechaNueva;\n});\n\nreturn transaccionesRango;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1792,
+        1776
+      ],
+      "id": "d9780fd2-e5f8-4287-8030-ef8993c5011e",
+      "name": "getUltimoDia",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const libroMayor = $('GetParametrosNormalizados2').all();\n\nconst parsearFecha = (fechaStr) => {\n  if (!fechaStr) return null;\n  const str = fechaStr.toString().trim();\n  \n  if (/^\\d+$/.test(str)) {\n    const serial = parseInt(str);\n    const ms = (serial - 25569) * 86400 * 1000;\n    const fecha = new Date(ms);\n    const offsetMs = fecha.getTimezoneOffset() * 60 * 1000;\n    const fechaLocal = new Date(ms + offsetMs);\n    return `${fechaLocal.getDate()}/${fechaLocal.getMonth() + 1}/${fechaLocal.getFullYear()}`;\n  }\n\n  return str;\n};\n\nreturn libroMayor.map(item => ({\n  json: {\n    ...item.json,\n    fecha: parsearFecha(item.json.fecha)  \n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2016,
+        2288
+      ],
+      "id": "e2696058-a1ea-4c00-ab2e-208e0b66eaab",
+      "name": "getFechaFormatoNormal",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('getUltimoDia').all();\n\nconst primerItem = items[0];\nconst ultimoItem = items[items.length - 1];\n\nconst saldoAnterior = primerItem.json[\"saldoanterior\"];\nconst saldoActual = ultimoItem.json[\"saldoactual\"];\n\nreturn [{ json: { saldoAnterior, saldoActual } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1568,
+        1568
+      ],
+      "id": "ad3979fe-9e1c-4481-ba77-52d61de78519",
+      "name": "getSaldoAnterioryActual",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('IfBalance').all();\nconst item = items[0]; \n\nconst extracto = $('GetParametrosNormalizados').all();\nconst extractoMes = extracto.at(-1);\n\nconst papel = $('getTotales').all();\n\nconst sumaTotales = papel.reduce((acc, p) => acc + Number(p.json.valorTotal), 0);\n\nconst totalCalculado = Number(item.json.saldoActual) + sumaTotales;\n\n\nitem.json.saldoenextractonuevo =\n  Number(item.json.saldoenextractoanterior) +\n  Number(extractoMes.json.debito) -\n  Number(extractoMes.json.credito);\n\nreturn [{ json: { \n  \"Saldo en libros\": item.json.saldoActual,\n  \"Totales\": totalCalculado,\n  \"Saldo en extracto anterior\": item.json.saldoenextractoanterior,\n  \"Saldo en extracto nuevo\": item.json.saldoenextractonuevo\n}}]; \n \n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        192
+      ],
+      "id": "9105f0a3-83c6-442f-9e34-08583c3535dd",
+      "name": "UpdateSaldoLibrosyAnterior",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const libroMayor = $('GetParametrosNormalizados3').all();\n\nconst parsearFecha = (fechaStr) => {\n  if (!fechaStr) return null;\n  const str = fechaStr.toString().trim();\n  \n  if (/^\\d+$/.test(str)) {\n    const serial = parseInt(str);\n    const ms = (serial - 25569) * 86400 * 1000;\n    const fecha = new Date(ms);\n    const offsetMs = fecha.getTimezoneOffset() * 60 * 1000;\n    const fechaLocal = new Date(ms + offsetMs);\n    return `${fechaLocal.getDate()}/${fechaLocal.getMonth() + 1}/${fechaLocal.getFullYear()}`;\n  }\n\n  return str;\n};\n\nreturn libroMayor.map(item => ({\n  json: {\n    ...item.json,\n    fecha: parsearFecha(item.json.fecha)  \n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2016,
+        2496
+      ],
+      "id": "bb4dfa1e-fd26-4e90-b061-283622a0c593",
+      "name": "getFechaFormatoNormal1",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('getFechaVerdadera').all();\n\nconst newItems = [];\n\nfor (const item of items) {\n  \n  if (item.json.fechareal !== item.json.fecha\n      && item.json.fechareal !== undefined) {\n    newItems.push(item);\n  }\n}\n\nreturn newItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        2096
+      ],
+      "id": "819a03c6-b093-4352-ab10-3969990bfd95",
+      "name": "getTransaccionesContViejas",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('getFechaVerdadera').all();\n\n\nconst newItems = [];\n\nfor (const item of items) {\n  \n  if (item.json.fechareal == item.json.fecha\n      && item.json.fecha !== undefined) {\n    newItems.push(item);\n  }\n}\n\n\nreturn newItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        1824
+      ],
+      "id": "cdeb6b7c-ee21-4172-b465-81465e262e9d",
+      "name": "getTransaccionesContFechaActual",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const movimiento = $('GetTransaccionesUltimoDiaSinGastosBancarios').all();\nconst libro = $('getTransaccionesContFechaActual').all();\n\nconst normalize = (str) => String(str ?? '').trim().toLowerCase();\n\nconst resultado = movimiento.filter(i => {\n  const encontrado = libro.some(j => {\n    const mismoConcepto = normalize(j.json.concepto) === normalize(i.json.concepto);\n    \n    const debitoI = Number(i.json.debito) || 0;\n    const creditoI = Number(i.json.credito) || 0;\n    const valorJ = Math.abs(Number(j.json.valor) || 0);\n    \n    const mismoValor = debitoI === valorJ || creditoI === valorJ;\n\n    return mismoConcepto && mismoValor;\n  });\n\n  return !encontrado;\n});\n\nreturn resultado;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -896,
+        752
+      ],
+      "id": "84011603-4fb4-4495-a0c0-925cf3422340",
+      "name": "getMovimientosSinCont",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('getMovimientosSinCont').all();\n\nconst newItems = [];\n\nfor (const item of items) {\n  \n  if (item.json.debito == 0) {\n    newItems.push(item);\n  }\n}\n\nreturn newItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -672,
+        848
+      ],
+      "id": "ab96359a-1f0c-4887-b460-c8c25187af19",
+      "name": "getCreditoSinCont"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('getMovimientosSinCont').all();\n\nconst newItems = [];\n\nfor (const item of items) {\n  \n  if (item.json.credito == 0) {\n    newItems.push(item);\n  }\n}\n\nreturn newItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -672,
+        656
+      ],
+      "id": "4fa9d8f7-8996-4cca-9384-25124e96669c",
+      "name": "getDebitoSinCont"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('getDebitoSinCont').all();\n\nreturn items.map(item => {\n  const data = { ...item.json };\n\n  delete data.credito;\n\n  data.valor = data.debito;\n  delete data.debito;\n\n  return { json: data };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        656
+      ],
+      "id": "b04fb6dd-743b-4457-85b8-77eac9ef19d5",
+      "name": "updateNombreColumnas"
+    },
+    {
+      "parameters": {
+        "jsCode": "const libro = $('getDebitosContViejos').all();\nconst papel = $('UpdateIngresosBancariosInConsigNoContPend').all();\n\nconst normalize = (str) => String(str ?? '').toLowerCase();\n\nfor (const i of libro) {\n  for (const j of papel){\n    if (\n      j.json.fecha === i.json.fechareal &&\n      normalize(j.json.concepto) === normalize(i.json.concepto)   &&\n      j.json.valor === i.json.debito\n    ) {\n      papel.splice(papel.indexOf(j), 1); \n    }\n  }\n}\n\nreturn papel;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -672,
+        1040
+      ],
+      "id": "a16b8a9f-0fc0-4475-a746-20d2d81d8144",
+      "name": "UpdatePapelDeTrabajoConsig",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const cleanItem = {};\n  \n  Object.keys(item.json).forEach(key => {\n    const cleanKey = key.trim();\n    \n    cleanItem[cleanKey] = item.json[key];\n  });\n\n  return { json: cleanItem };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        1040
+      ],
+      "id": "ce29f7f9-43b4-4915-851f-5f64a06bf280",
+      "name": "updateNombreColumnas1",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('getCreditoSinCont').all();\n\nreturn items.map(item => {\n  const data = { ...item.json };\n\n  delete data.debito;\n\n  data.valor = data.credito;\n  delete data.credito;\n\n  return { json: data };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        848
+      ],
+      "id": "f274db0f-8d01-4a6e-a214-8ec001af54e2",
+      "name": "updateNombreColumnas2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const libro = $('getCreditosContViejos').all();\nconst papel = $('UpdateGastosBancariosInRetirosNoContPend').all();\n\nconst normalize = (str) => String(str ?? '').toLowerCase();\n\nfor (const i of libro) {\n  for (const j of papel){\n    if (\n      j.json.fecha === i.json.fechareal &&\n      normalize(j.json.concepto) === normalize(i.json.concepto)   &&\n      j.json.valor === i.json.credito\n    ) {\n      papel.splice(papel.indexOf(j), 1); \n    }\n  }\n}\n\nreturn papel;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -672,
+        1232
+      ],
+      "id": "c0077c8c-b56c-41bc-bd45-2c9029cf4693",
+      "name": "updatePapelDeTrabajoRetiros1",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -224,
+        848
+      ],
+      "id": "e6504da6-eb10-46bd-b7b5-46b866669618",
+      "name": "updatePapelConsigConMov",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('GetValorNormalizado').all();\n\nfor (const item of items) {\n  let raw = String(item.json.nota || \"\");\n\n  let sinEspacios = raw.trim();\n\n  let partes = sinEspacios.split(/[\\s\\-]+/).filter(p => p.length > 0);\n\n  let soloNumeros = partes.map(p => p.replace(/\\D/g, \"\")).filter(n => n.length > 0);\n\n  item.json.notaNormalizada = soloNumeros;\n}\n\nreturn items;\n\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1568,
+        2496
+      ],
+      "id": "08a38caa-c1ee-489c-8aeb-93fa1f122605",
+      "name": "CleanNotes",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input1 = $('getUltimoDia').all();\nconst input2 = $('CleanNotes').all();\n\nconst resultado = [];\n\n// Agrupar input2 por nota\nconst input2PorNota = {};\nfor (const item of input2) {\n  const nota = item.json.notaNormalizada?.[0]?.toString().trim();\n  if (!nota) continue;\n  if (!input2PorNota[nota]) input2PorNota[nota] = [];\n  input2PorNota[nota].push(item.json);\n}\n\n// Agrupar input1 por nota y hacer match posicional\nconst input1PorNota = {};\nfor (const item of input1) {\n  const nota = item.json.nota?.toString().trim();\n  if (!nota) continue;\n  if (!input1PorNota[nota]) input1PorNota[nota] = [];\n  input1PorNota[nota].push(item);\n}\n\nfor (const [nota, filasInput1] of Object.entries(input1PorNota)) {\n  const filasInput2 = input2PorNota[nota] || [];\n\n  filasInput1.forEach((item, index) => {\n    const match = filasInput2[index] || {};\n    resultado.push({\n      json: {\n        ...item.json,\n        fechareal: match.fecha || null,\n        concepto: match.concepto || null,\n        valor: match.valor ? match.valor : null,\n      }\n    });\n  });\n}\n\nreturn resultado;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1344,
+        2048
+      ],
+      "id": "aef93e0b-fff5-48c0-b5b4-95f09783ef36",
+      "name": "getFechaVerdadera",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Guardar registros en un Json\nconst newItems = [];\nlet totalDebito = 0;\nlet totalCredito = 0;\n\nfor (const item of items) {\n  const row = item.json.row;\n  const Fecha = `${row[\"3\"].slice(0,2)}/${row[\"3\"].slice(2,4)}/${row[\"3\"].slice(4,8)}`;\n  const valor = parseFloat(row[\"5\"] || 0);\n  const Debito = valor > 0 ? valor : 0;     \n  const Credito = valor < 0 ? Math.abs(valor) : 0;\n\n  totalDebito += Debito;\n  totalCredito += Credito;\n  \n  newItems.push({\n    json: {\n      Fecha,\n      Concepto: row[\"7\"],\n      Debito,\n      Credito\n    }\n  });\n}\n\nnewItems.push({\n  json: {\n    Fecha: \"None\",\n    Concepto: \"TOTAL\",\n    Debito: totalDebito,\n    Credito: totalCredito\n  }\n});\n\n\nreturn newItems;;\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1792,
+        1136
+      ],
+      "id": "9dd6d46f-1f0b-47c0-9945-4bf9f082481a",
+      "name": "GetTransaccionesJson",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const libroMayor = $('GetParametrosNormalizados7').all();\n\nconst parsearFecha = (fechaStr) => {\n  if (!fechaStr) return null;\n  const str = fechaStr.toString().trim();\n  \n  if (/^\\d+$/.test(str)) {\n    const serial = parseInt(str);\n    const ms = (serial - 25569) * 86400 * 1000;\n    const fecha = new Date(ms);\n    const offsetMs = fecha.getTimezoneOffset() * 60 * 1000;\n    const fechaLocal = new Date(ms + offsetMs);\n    return `${fechaLocal.getDate()}/${fechaLocal.getMonth() + 1}/${fechaLocal.getFullYear()}`;\n  }\n\n  return str;\n};\n\nreturn libroMayor.map(item => ({\n  json: {\n    ...item.json,\n    fecha: parsearFecha(item.json.fecha)  \n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        1632
+      ],
+      "id": "6d7ba687-1ba4-44fd-a3ad-12082605ab59",
+      "name": "getFechaFormatoNormal6",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "nota",
+        "joinMode": "keepNonMatches",
+        "outputDataFrom": "input1",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        0,
+        1968
+      ],
+      "id": "7c8841ed-a9d8-4e52-92c2-881367bf1c51",
+      "name": "getDatosSinMatchear",
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const libro = $('CleanNotes').all();\nconst papel = $('updatePapelConsigConMov').all();\n\nconst normalize = (str) => String(str ?? '').toLowerCase();\n\nfor (const i of libro) {\n  for (const j of papel){\n    if (\n      j.json.fecha === i.json.fechareal &&\n      normalize(j.json.concepto) === normalize(i.json.concepto)   &&\n      j.json.valor === i.json.debito\n    ) {\n      papel.splice(papel.indexOf(j), 1); \n    }\n  }\n}\n\nreturn papel;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        848
+      ],
+      "id": "43d3b530-5fef-4260-bc09-c685b0927720",
+      "name": "UpdatePapelDeTrabajoConsig1",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const libro = $('CleanNotes').all();\nconst papel = $('Code in JavaScript1').all();\n\nconst normalize = (str) => String(str ?? '').toLowerCase();\n\nfor (const i of libro) {\n  for (const j of papel){\n    if (\n      j.json.fecha === i.json.fechareal &&\n      normalize(j.json.concepto) === normalize(i.json.concepto)   &&\n      j.json.valor === i.json.credito\n    ) {\n      papel.splice(papel.indexOf(j), 1); \n    }\n  }\n}\n\nreturn papel;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        1040
+      ],
+      "id": "da03e23e-e46f-4386-9f22-ef6fe7b1fb06",
+      "name": "updatePapelDeTrabajoRetiros",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "//Normalización de fecha\nconst libroMayor = $('GetParametrosNormalizados').all();\n\nconst parsearFecha = (fechaStr) => {\n  if (!fechaStr) return null;\n  const str = fechaStr.toString().trim();\n  \n  if (/^\\d+$/.test(str)) {\n    const serial = parseInt(str);\n    const ms = (serial - 25569) * 86400 * 1000;\n    const fecha = new Date(ms);\n    const offsetMs = fecha.getTimezoneOffset() * 60 * 1000;\n    const fechaLocal = new Date(ms + offsetMs);\n    return `${fechaLocal.getDate()}/${fechaLocal.getMonth() + 1}/${fechaLocal.getFullYear()}`;\n  }\n\n  return str;\n};\n\nreturn libroMayor.map(item => ({\n  json: {\n    ...item.json,\n    fecha: parsearFecha(item.json.fecha)  \n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1344,
+        848
+      ],
+      "id": "0343f6ee-5f18-4655-97f3-63515945973b",
+      "name": "GetFechaFormatoMovimientos",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "//Normalización de cabecera de columnas\nconst items = $('GetTransaccionesJson').all();\n\nreturn items.map(item => {\n  const newItem = {};\n  \n  for (const key of Object.keys(item.json)) {\n    const newKey = key.replace(/\\s+/g, '').toLowerCase(); \n    newItem[newKey] = item.json[key];\n  }\n  \n  return { json: newItem };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1568,
+        1136
+      ],
+      "id": "7479b6a0-856b-437d-9f28-a748fa914d07",
+      "name": "GetParametrosNormalizados",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('ExtractLibroMayorFromFile').all();\n\nreturn items.map(item => {\n  const newItem = {};\n  \n  for (const key of Object.keys(item.json)) {\n    const newKey = key.replace(/\\s+/g, '')\n      .replace(/_/g, '')\n      .toLowerCase(); \n    newItem[newKey] = item.json[key];\n  }\n  \n  return { json: newItem };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2240,
+        2288
+      ],
+      "id": "401cfe9e-fd75-45e5-91c5-a4cd966834c6",
+      "name": "GetParametrosNormalizados2",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('ExtractConciliacionDiaFromFile').all();\n\nreturn items.map(item => {\n  const newItem = {};\n  \n  for (const key of Object.keys(item.json)) {\n    const newKey = key.replace(/\\s+/g, '').toLowerCase(); \n    newItem[newKey] = item.json[key];\n  }\n  \n  return { json: newItem };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2240,
+        2496
+      ],
+      "id": "669a89cd-4958-48c8-97ad-27b079ee6af2",
+      "name": "GetParametrosNormalizados3",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const libroMayor = $('getFechaFormatoNormal1').all();\nconst newItems = [];\n\nfor (const item of libroMayor) {\n  if (item.json.ubicacion !== null) {\n    item.json.nota = String(item.json.nota ?? '').trim();\n\n    const valorRaw = item.json.valor;\n    if (valorRaw !== null && valorRaw !== undefined) {\n      const str = valorRaw.toString()\n        .trim()\n        .replace(/\\s/g, ''); \n\n      let limpio;\n      if (str.includes(',')) {\n        limpio = str.replace(/\\./g, '').replace(',', '.');\n      } else {\n        limpio = str.replace(/\\./g, '');\n      }\n      item.json.valor = parseFloat(limpio) || null;\n    } else {\n      item.json.valor = null;\n    }\n\n    newItems.push(item);\n  }\n}\n\nreturn newItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1792,
+        2496
+      ],
+      "id": "d71fcbfe-faf3-4883-ba50-00a0118d6235",
+      "name": "GetValorNormalizado"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('ExtractConsigNoContPendienteFromFile').all();\n\nreturn items.map(item => {\n  const newItem = {};\n  \n  for (const key of Object.keys(item.json)) {\n    const newKey = key.replace(/\\s+/g, '').toLowerCase(); \n    newItem[newKey] = item.json[key];\n  }\n  \n  return { json: newItem };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1568,
+        2720
+      ],
+      "id": "aca022d2-a410-4111-a514-0fdd0299e319",
+      "name": "GetParametrosNormalizados4",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('ExtractRetirosNoContPendFromFile').all();\n\nreturn items.map(item => {\n  const newItem = {};\n  \n  for (const key of Object.keys(item.json)) {\n    const newKey = key.replace(/\\s+/g, '').toLowerCase(); \n    newItem[newKey] = item.json[key];\n  }\n  \n  return { json: newItem };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1568,
+        2912
+      ],
+      "id": "3df8f128-4e73-4149-a4fa-19711f84e900",
+      "name": "GetParametrosNormalizados5",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('ExtractBalancesFromFiles').all();\n\nreturn items.map(item => {\n  const newItem = {};\n  \n  for (const key of Object.keys(item.json)) {\n    const newKey = key.replace(/\\s+/g, '').toLowerCase(); \n    newItem[newKey] = item.json[key];\n  }\n  \n  return { json: newItem };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1568,
+        3392
+      ],
+      "id": "78a714af-ec3b-4ffc-b80d-d74d219c9e7a",
+      "name": "GetParametrosNormalizados6",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('ExtractLibroMayorAnteriorFromFile').all();\n\nreturn items.map(item => {\n  const newItem = {};\n  \n  for (const key of Object.keys(item.json)) {\n    const newKey = key.replace(/\\s+/g, '').toLowerCase(); \n    newItem[newKey] = item.json[key];\n  }\n  \n  return { json: newItem };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        1632
+      ],
+      "id": "bac698b5-d302-409a-9ac7-807313c0488a",
+      "name": "GetParametrosNormalizados7",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('ExtractConsigContPendFromFile').all();\n\nreturn items.map(item => {\n  const newItem = {};\n  \n  for (const key of Object.keys(item.json)) {\n    const newKey = key.replace(/\\s+/g, '').toLowerCase(); \n    newItem[newKey] = item.json[key];\n  }\n  \n  return { json: newItem };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        3248
+      ],
+      "id": "93f7fdec-d275-425c-9977-e9950b98b799",
+      "name": "GetParametrosNormalizados1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('ExtractRetContPendFromFile').all();\n\nreturn items.map(item => {\n  const newItem = {};\n  \n  for (const key of Object.keys(item.json)) {\n    const newKey = key.replace(/\\s+/g, '').toLowerCase(); \n    newItem[newKey] = item.json[key];\n  }\n  \n  return { json: newItem };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        3056
+      ],
+      "id": "dc09a9e5-c896-4fe9-b45f-f899adca8c88",
+      "name": "GetParametrosNormalizados8"
+    },
+    {
+      "parameters": {
+        "jsCode": "const libroMayor = $('GetParametrosNormalizados8').all();\n\nconst parsearFecha = (fechaStr) => {\n  if (!fechaStr) return null;\n  const str = fechaStr.toString().trim();\n  \n  if (/^\\d+$/.test(str)) {\n    const serial = parseInt(str);\n    const ms = (serial - 25569) * 86400 * 1000;\n    const fecha = new Date(ms);\n    const offsetMs = fecha.getTimezoneOffset() * 60 * 1000;\n    const fechaLocal = new Date(ms + offsetMs);\n    return `${fechaLocal.getDate()}/${fechaLocal.getMonth() + 1}/${fechaLocal.getFullYear()}`;\n  }\n\n  return str;\n};\n\nreturn libroMayor.map(item => ({\n  json: {\n    ...item.json,\n    fecha: parsearFecha(item.json.fecha)  \n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        3056
+      ],
+      "id": "bdb5cd56-05ca-4532-8691-fa9753fe225a",
+      "name": "GetFechaNormalizadaRetContPend"
+    },
+    {
+      "parameters": {
+        "jsCode": "const libroMayor = $('GetParametrosNormalizados1').all();\n\nconst parsearFecha = (fechaStr) => {\n  if (!fechaStr) return null;\n  const str = fechaStr.toString().trim();\n  \n  if (/^\\d+$/.test(str)) {\n    const serial = parseInt(str);\n    const ms = (serial - 25569) * 86400 * 1000;\n    const fecha = new Date(ms);\n    const offsetMs = fecha.getTimezoneOffset() * 60 * 1000;\n    const fechaLocal = new Date(ms + offsetMs);\n    return `${fechaLocal.getDate()}/${fechaLocal.getMonth() + 1}/${fechaLocal.getFullYear()}`;\n  }\n\n  return str;\n};\n\nreturn libroMayor.map(item => ({\n  json: {\n    ...item.json,\n    fecha: parsearFecha(item.json.fecha)  \n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        3248
+      ],
+      "id": "47b96a7f-026e-4311-8d85-ae849847cb45",
+      "name": "GetFechaNormalizadaConsigContPend"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('getTransaccionesContViejas').all();\n\nconst newItems = [];\n\nfor (const item of items) {\n  \n  if (item.json.credito == 0) {\n    newItems.push(item);\n  }\n}\n\nreturn newItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -896,
+        2000
+      ],
+      "id": "aa82a925-539f-4000-92c7-7f8850d0114d",
+      "name": "getDebitosContViejos",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('getTransaccionesContViejas').all();\n\nconst newItems = [];\n\nfor (const item of items) {\n  \n  if (item.json.debito == 0) {\n    newItems.push(item);\n  }\n}\n\nreturn newItems;;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -896,
+        2192
+      ],
+      "id": "de169a0f-a701-4ac2-ba8d-abe33ec26f7e",
+      "name": "getCreditosContViejos",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst movimiento = $('GetTransaccionesUltimoDiaSinGastosBancarios').all();\nconst libro = $('getTransaccionesContFechaActual').all();\n\nconst normalize = (str) => String(str ?? '').trim().toLowerCase();\n\nconst resultado = libro.filter(i => {\n  const encontrado = movimiento.some(j => {\n    const mismoConcepto = normalize(j.json.concepto) === normalize(i.json.concepto);\n    \n    const debitoI = Number(i.json.debito) || 0;\n    const creditoI = Number(i.json.credito) || 0;\n    const valorJ = Math.abs(Number(j.json.valor) || 0);\n    \n    const mismoValor = debitoI === valorJ || creditoI === valorJ;\n\n    return mismoConcepto && mismoValor;\n  });\n\n  return !encontrado;\n});\n\nreturn resultado;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        384
+      ],
+      "id": "8f7427ca-5601-475b-b48d-40c258c4763c",
+      "name": "getTransaccionesContInNotMovimientos",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('getTransaccionesContInNotMovimientos').all();\n\nconst newItems = [];\n\nfor (const item of items) {\n  \n  if (item.json.credito == 0) {\n    newItems.push(item);\n  }\n}\n\nreturn newItems;;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        288
+      ],
+      "id": "f1e8f788-b824-4b81-8654-6929055773ff",
+      "name": "getDebitoCont"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('getTransaccionesContInNotMovimientos').all();\n\nconst newItems = [];\n\nfor (const item of items) {\n  \n  if (item.json.debito == 0) {\n    newItems.push(item);\n  }\n}\n\nreturn newItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        480
+      ],
+      "id": "8113d020-66cf-4cd4-a2c2-faf031dfdb2d",
+      "name": "getCreditosCont"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('getDebitoCont').all();\n\nreturn items.map(item => {\n  const data = { ...item.json };\n\n  delete data.credito;\n\n  data.valor = data.debito;\n  delete data.debito;\n\n  return { json: data };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        288
+      ],
+      "id": "5bf080d3-d324-4a8e-965d-fac406414f42",
+      "name": "updateNombreColumnas3"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $('getCreditosCont').all();\n\nreturn items.map(item => {\n  const data = { ...item.json };\n\n  delete data.debito;\n\n  data.Valor = data.credito;\n  delete data.credito;\n\n  return { json: data };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        480
+      ],
+      "id": "1173b2b8-09ce-4899-ad80-9acc1dffc8ae",
+      "name": "updateNombreColumnas4"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        672,
+        288
+      ],
+      "id": "3ce5d9b4-d46b-4250-816e-171be12bc3f8",
+      "name": "updatePapelDeTrabajoDebitosContPend"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        672,
+        480
+      ],
+      "id": "f47acca9-0592-4a06-8a77-91144f9f435a",
+      "name": "updatePapelDeTrabajoConsigContPend"
+    },
+    {
+      "parameters": {
+        "mode": "combineBySql",
+        "query": "SELECT input1.*, input2.fecha AS fechareal, input2.concepto AS concepto FROM input1 LEFT JOIN input2 \nON input1.nota = input2.nota ",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        224,
+        2064
+      ],
+      "id": "52717bbb-f68c-466e-ba5d-bb767fd10783",
+      "name": "getDatosCompletosSinMatchear",
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "formTitle": "Formulario de automatización",
+        "formDescription": "Añaque aquí los 4 documentos y fechas necesarias para realizar el proceso de contabilización",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Añade el libro mayor",
+              "fieldType": "file",
+              "acceptFileTypes": ".csv, .xlsx",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Ingresa el papel de trabajo",
+              "fieldType": "file",
+              "acceptFileTypes": ".csv, .xlsx",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Ingresa el documento de movimientos",
+              "fieldType": "file",
+              "acceptFileTypes": ".csv, .xlsx",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Ingresa el documento de conciliación",
+              "fieldType": "file",
+              "acceptFileTypes": ".csv, .xlsx",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Fecha última conciliación",
+              "fieldType": "date",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Nueva fecha conciliación",
+              "fieldType": "date",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "71f0ca08-268b-4382-83b8-d83a80c67d00",
+      "name": "Upload your file here",
+      "type": "n8n-nodes-base.formTrigger",
+      "position": [
+        -2688,
+        2592
+      ],
+      "webhookId": "65de04c0-8f6e-4576-bfdd-5c8940c58678",
+      "typeVersion": 2.2
+    },
+    {
+      "parameters": {
+        "binaryPropertyName": "Ingresa_el_documento_de_movimientos",
+        "options": {
+          "headerRow": false
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -2016,
+        1136
+      ],
+      "id": "707102ea-46d6-4162-8206-4c2fce3f11b9",
+      "name": "ExtractMovimientosFromFile",
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "binaryPropertyName": "A_ade_el_libro_mayor",
+        "options": {
+          "rawData": true
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -2464,
+        2288
+      ],
+      "id": "d611d5ae-cd75-4e1c-bea0-fd92776ddc23",
+      "name": "ExtractLibroMayorFromFile"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "binaryPropertyName": "Ingresa_el_documento_de_conciliaci_n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -2464,
+        2496
+      ],
+      "id": "d4302052-48e6-4450-9449-06f2d11bae23",
+      "name": "ExtractConciliacionDiaFromFile"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "binaryPropertyName": "Ingresa_el_papel_de_trabajo",
+        "options": {
+          "headerRow": true,
+          "sheetName": "ConsigNoContPendiente"
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -1792,
+        2720
+      ],
+      "id": "00939bd8-c100-4534-a574-87a1100fefcc",
+      "name": "ExtractConsigNoContPendienteFromFile"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "binaryPropertyName": "Ingresa_el_papel_de_trabajo",
+        "options": {
+          "includeEmptyCells": true,
+          "sheetName": "RetirosNoContPendiente"
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -1792,
+        2912
+      ],
+      "id": "98242d3d-5515-4def-9a76-e4861299d9b9",
+      "name": "ExtractRetirosNoContPendFromFile"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "binaryPropertyName": "Ingresa_el_papel_de_trabajo",
+        "options": {
+          "includeEmptyCells": true,
+          "sheetName": "RetContNoBancoPendiente"
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        3056
+      ],
+      "id": "1692d26c-f44a-41ef-8d11-2bc53a0f45aa",
+      "name": "ExtractRetContPendFromFile"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "binaryPropertyName": "Ingresa_el_papel_de_trabajo",
+        "options": {
+          "includeEmptyCells": true,
+          "sheetName": "ConsigContNoBancoPendiente"
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        3248
+      ],
+      "id": "2b5b2661-f8c3-407b-afd6-f347b84ade70",
+      "name": "ExtractConsigContPendFromFile"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "binaryPropertyName": "Ingresa_el_papel_de_trabajo",
+        "options": {
+          "includeEmptyCells": true,
+          "sheetName": "Balances"
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -1792,
+        3392
+      ],
+      "id": "a9d6931d-e35e-492d-bc10-4194af801d25",
+      "name": "ExtractBalancesFromFiles"
+    },
+    {
+      "parameters": {
+        "jsCode": "let item = $('UpdatePapelDeTrabajoConsig1').all();\nconst hayError = item.some(i => 'error' in i.json);\n\nif (hayError){\n  return [];  \n}\n\nreturn item;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        848
+      ],
+      "id": "790d9c51-57d3-47d1-8694-7f8be5086c38",
+      "name": "SelectRun1",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "let item = $('updatePapelDeTrabajoRetiros').all();\nconst hayError = item.some(i => 'error' in i.json);\n\nif (hayError){\n  return [];  \n}\n\nreturn item;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        1040
+      ],
+      "id": "05fdd03e-5541-462b-9932-0b74a1c14f60",
+      "name": "SelectRun2"
+    },
+    {
+      "parameters": {
+        "jsCode": "let item = $('updateNombreColumnas3').all();\nconst hayError = item.some(i => 'error' in i.json);\n\nif (hayError){\n  return [];  \n}\n\nreturn item;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        288
+      ],
+      "id": "91cea7c6-feec-489c-a9fb-101d41a064ea",
+      "name": "SelectRun3"
+    },
+    {
+      "parameters": {
+        "jsCode": "let item = $('updateNombreColumnas4').all();\nconst hayError = item.some(i => 'error' in i.json);\n\nif (hayError){\n  return [];  \n}\n\nreturn item;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        480
+      ],
+      "id": "1f7b6769-98fb-4df7-b240-2acac6986bd4",
+      "name": "SelectRun4"
+    },
+    {
+      "parameters": {
+        "jsCode": "let credito = $('updateNombreColumnas2').all();\nlet papel = $('updatePapelDeTrabajoRetiros1').all();\n\nlet newItem = [];\n\nfor (const j of papel) {\n  for (const i of credito){\n    if (j.json.concepto === i.json.concepto) {\n      j.json.valor = j.json.valor + i.json.valor;\n    }\n  }\n      newItem.push(j);\n}\n\nreturn newItem;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        1040
+      ],
+      "id": "b2796058-172c-4609-9442-c6a81adee898",
+      "name": "Code in JavaScript1",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const libroMayor = $('GetParametrosNormalizados4').all();\n\nconst parsearFecha = (fechaStr) => {\n  if (!fechaStr) return null;\n  const str = fechaStr.toString().trim();\n  \n  if (/^\\d+$/.test(str)) {\n    const serial = parseInt(str);\n    const ms = (serial - 25569) * 86400 * 1000;\n    const fecha = new Date(ms);\n    const offsetMs = fecha.getTimezoneOffset() * 60 * 1000;\n    const fechaLocal = new Date(ms + offsetMs);\n    return `${fechaLocal.getDate()}/${fechaLocal.getMonth() + 1}/${fechaLocal.getFullYear()}`;\n  }\n\n  return str;\n};\n\nreturn libroMayor.map(item => ({\n  json: {\n    ...item.json,\n    fecha: parsearFecha(item.json.fecha)  \n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1344,
+        2720
+      ],
+      "id": "85c8034a-9e7a-494f-bbe9-2213ff37cc11",
+      "name": "GetFechaNormalizadaConsigNoContPendiente"
+    },
+    {
+      "parameters": {
+        "jsCode": "const libroMayor = $('GetParametrosNormalizados5').all();\n\nconst parsearFecha = (fechaStr) => {\n  if (!fechaStr) return null;\n  const str = fechaStr.toString().trim();\n  \n  if (/^\\d+$/.test(str)) {\n    const serial = parseInt(str);\n    const ms = (serial - 25569) * 86400 * 1000;\n    const fecha = new Date(ms);\n    const offsetMs = fecha.getTimezoneOffset() * 60 * 1000;\n    const fechaLocal = new Date(ms + offsetMs);\n    return `${fechaLocal.getDate()}/${fechaLocal.getMonth() + 1}/${fechaLocal.getFullYear()}`;\n  }\n\n  return str;\n};\n\nreturn libroMayor.map(item => ({\n  json: {\n    ...item.json,\n    fecha: parsearFecha(item.json.fecha)  \n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1344,
+        2912
+      ],
+      "id": "7054d4a1-7e71-4b15-98b6-22f26812d7e9",
+      "name": "GetFechaNormalizadaRetirosNoContPend"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {
+          "fileName": "papel de trabajo actualizado.xlsx"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        2016,
+        528
+      ],
+      "id": "867fde4f-dc14-49f9-b6f3-167b590dd0c6",
+      "name": "Convert to File4",
+      "executeOnce": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "sendTo": "karen.jimenez1@udea.edu.co",
+        "subject": "Papel de trabajo",
+        "message": "Hola, te comparto el papel de trabajo actualizado.",
+        "options": {
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {
+                "property": "=data"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2240,
+        528
+      ],
+      "id": "51eef48c-712a-4c88-aa91-4695060abf87",
+      "name": "Send a message",
+      "webhookId": "9cd9aeea-49af-492a-9a29-8029077f5ec0",
+      "executeOnce": false,
+      "notesInFlow": false,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "zR5TvlBo7Mkmutk0",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let debitosCont = [];\nlet creditosCont = [];\nlet creditosNoCont = [];\nlet debitosNoCont = [];\n\ntry { debitosCont = $('updatePapelDeTrabajoDebitosContPend').all(); } catch(e) {}\ntry { creditosCont = $('updatePapelDeTrabajoConsigContPend').all(); } catch(e) {}\ntry { creditosNoCont = $('SelectRun2').all(); } catch(e) {}\ntry { debitosNoCont = $('SelectRun1').all(); } catch(e) {}\n\nfunction agregarSeccion(titulo, items) {\n  return [\n    { fecha: titulo, concepto: '', valor: '', nota: '' },\n    ...items.map(i => i.json)\n  ];\n}\n\nconst resultado = [\n  ...agregarSeccion('CONSIGNACIONES REALIZADAS EN BANCO PENDIENTES POR CONTABILIZAR', debitosNoCont),\n  ...agregarSeccion('RETIROS REALIZADOS EN BANCO PENDIENTES POR CONTABILIZAR', creditosNoCont),\n  ...agregarSeccion('DÉBITOS CONTABILIZADOS PENDIENTES EN BANCO', debitosCont),\n  ...agregarSeccion('CRÉDITOS CONTABILIZADOS PENDIENTES EN BANCO', creditosCont)\n];\n\nreturn resultado.map(row => ({ json: row }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        48
+      ],
+      "id": "7d9a4198-9299-4b03-ac35-b01b9370e363",
+      "name": "getTransaccionesSinBalance",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "let debitosCont = [];\nlet creditosCont = [];\nlet creditosNoCont = [];\nlet debitosNoCont = [];\nlet balances = [];\n\ntry { debitosCont = $('updatePapelDeTrabajoDebitosContPend').all(); } catch(e) {}\ntry { creditosCont = $('updatePapelDeTrabajoConsigContPend').all(); } catch(e) {}\ntry { creditosNoCont = $('SelectRun2').all(); } catch(e) {}\ntry { debitosNoCont = $('SelectRun1').all(); } catch(e) {}\ntry { balances = $('SelectRun5').all(); } catch(e) {}\n\nfunction agregarSeccion(titulo, items) {\n  return [\n    { fecha: titulo, concepto: '', valor: '', nota: '' },\n    ...items.map(i => i.json)\n  ];\n}\n\nconst balancesMapeados = balances.map(i => ({\n  fecha: 'Saldo en libros: ' + i.json['Saldo en libros'],\n  concepto: 'Totales: ' + i.json['Totales'],\n  valor:'Totales: ' + i.json['Saldo en extracto anterior'],\n  nota: 'Saldo en Extracto: ' + i.json['Saldo en extracto nuevo']\n}));\n\nconst resultado = [\n  ...agregarSeccion('CONSIGNACIONES REALIZADAS EN BANCO PENDIENTES POR CONTABILIZAR', debitosNoCont),\n  ...agregarSeccion('RETIROS REALIZADOS EN BANCO PENDIENTES POR CONTABILIZAR', creditosNoCont),\n  ...agregarSeccion('DÉBITOS CONTABILIZADOS PENDIENTES EN BANCO', debitosCont),\n  ...agregarSeccion('CRÉDITOS CONTABILIZADOS PENDIENTES EN BANCO', creditosCont),\n  { fecha: 'BALANCES', concepto: '', valor: '', nota: '' },\n  ...balancesMapeados\n];\n\nreturn resultado.map(row => ({ json: row }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        528
+      ],
+      "id": "20354e30-4936-4273-9eec-8cfecd4dff01",
+      "name": "getTransacciones",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nlet categoriaActual = \"\";\nconst resumen = {};\n\nfor (const item of items) {\n\n  const fecha = item.json.fecha;\n  const valor = Number(item.json.valor) || 0;\n\n  if (!valor) {\n    categoriaActual = fecha;\n\n    if (!resumen[categoriaActual]) {\n      resumen[categoriaActual] = {\n        archivo: categoriaActual,\n        cantidad: 0,\n        valorTotal: 0\n      };\n    }\n\n  } else {\n    resumen[categoriaActual].cantidad++;\n    resumen[categoriaActual].valorTotal += valor;\n  }\n\n}\n\nreturn Object.values(resumen).map(x => ({json:x}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        48
+      ],
+      "id": "903a5b94-9ef7-40ee-aa4c-1f0f81843dae",
+      "name": "getTotales"
+    },
+    {
+      "parameters": {
+        "sendTo": "karen.jimenez1@udea.edu.co",
+        "subject": "Dashboard",
+        "message": "Hola, te comparto el dashboard resumido de la conciliación.",
+        "options": {
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {}
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1568,
+        0
+      ],
+      "id": "d0622e38-7446-40c3-9515-c50fd054a293",
+      "name": "Send a message1",
+      "webhookId": "9cd9aeea-49af-492a-9a29-8029077f5ec0",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "zR5TvlBo7Mkmutk0",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const datos = $input.all().map(x => x.json);\n\nconst labels = datos.map(x => x.archivo);\nconst cantidades = datos.map(x => x.cantidad);\nconst valores = datos.map(x => x.valorTotal);\n\nconst totalTransacciones = cantidades.reduce((a,b)=>a+b,0);\nconst totalDinero = valores.reduce((a,b)=>a+b,0);\n\nconst fechaGeneracion = new Date().toLocaleString();\n\nconst html = `\n<!DOCTYPE html>\n<html>\n<head>\n\n<meta charset=\"UTF-8\">\n\n<script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>\n\n<style>\n\nbody{\n    background:#eef2f7;\n    font-family:'Segoe UI',sans-serif;\n    margin:0;\n    padding:30px;\n}\n\nh1{\n    color:#1f2937;\n    margin-bottom:5px;\n}\n\n.fecha{\n    color:gray;\n    margin-bottom:30px;\n}\n\n.cards{\n    display:flex;\n    gap:20px;\n    margin-bottom:30px;\n}\n\n.card{\n    background:white;\n    flex:1;\n    padding:25px;\n    border-radius:20px;\n    box-shadow:0 5px 20px rgba(0,0,0,.1);\n}\n\n.card h3{\n    color:#6b728;\n    margin-top:0;\n}\n\n.numero{\n    font-size:40px;\n    font-weight:bold;\n    color:#2f4f2f;\n}\n\n.grafico{\n    background:white;\n    padding:30px;\n    border-radius:20px;\n    box-shadow:0 5px 20px rgba(0,0,0,.1);\n    margin-bottom:30px;\n}\n\ntable{\n    width:100%;\n    border-collapse:collapse;\n}\n\nth{\n    background:#2f4f2f;\n    color:white;\n    padding:15px;\n}\n\ntd{\n    padding:15px;\n    border-bottom:1px solid #ddd;\n}\n\ntr:nth-child(even){\n    background:#f8fafc;\n}\n\ncanvas{\n    max-height:500px;\n}\n\n</style>\n\n</head>\n\n<body>\n\n<h1>Dashboard de conciliación</h1>\n\n<div class=\"fecha\">\nActualizado: ${fechaGeneracion}\n</div>\n\n<div class=\"cards\">\n\n<div class=\"card\">\n<h3>Total transacciones pendientes</h3>\n<div class=\"numero\">\n${totalTransacciones}\n</div>\n</div>\n\n<div class=\"card\">\n<h3>Valor total pendiente</h3>\n<div class=\"numero\">\n$${totalDinero.toLocaleString()}\n</div>\n</div>\n\n</div>\n\n<div class=\"grafico\">\n<h2>Cantidad de transacciones por categoría</h2>\n<canvas id=\"grafico1\"></canvas>\n</div>\n\n<div class=\"grafico\">\n<h2>Valor pendiente por categoría</h2>\n<canvas id=\"grafico2\"></canvas>\n</div>\n\n<div class=\"grafico\">\n<h2>Distribución porcentual del valor</h2>\n<canvas id=\"grafico3\"></canvas>\n</div>\n\n<div class=\"grafico\">\n\n<h2>Resumen por categoría</h2>\n\n<table>\n\n<tr>\n<th>Categoría</th>\n<th>Transacciones</th>\n<th>Valor pendiente</th>\n</tr>\n\n${datos.map(x=>`\n<tr>\n<td>${x.archivo}</td>\n<td>${x.cantidad}</td>\n<td>$${x.valorTotal.toLocaleString()}</td>\n</tr>\n`).join(\"\")}\n\n</table>\n\n</div>\n\n<script>\n\nnew Chart(document.getElementById('grafico1'),{\n\ntype:'bar',\n\ndata:{\nlabels:${JSON.stringify(labels)},\n\ndatasets:[{\nlabel:'Cantidad pendiente',\ndata:${JSON.stringify(cantidades)},\nbackgroundColor:['#2f4f2f','#42426f','#856363','#545454']\n}]\n},\n\noptions:{\nresponsive:true\n}\n\n});\n\nnew Chart(document.getElementById('grafico2'),{\n\ntype:'bar',\n\ndata:{\nlabels:${JSON.stringify(labels)},\n\ndatasets:[{\nlabel:'Valor pendiente',\ndata:${JSON.stringify(valores)},\nbackgroundColor:['#2f4f2f','#42426f','#856363','#545454']\n}]\n},\n\noptions:{\nresponsive:true\n}\n\n});\n\nnew Chart(document.getElementById('grafico3'),{\n\ntype:'doughnut',\n\ndata:{\nlabels:${JSON.stringify(labels)},\n\ndatasets:[{\n\ndata:${JSON.stringify(valores)},\n\nbackgroundColor:['#2f4f2f','#42426f','#856363','#545454']\n\n}]\n}\n\n});\n\n</script>\n\n</body>\n</html>\n`;\n\nreturn [{\n  binary: {\n    data: {\n      data: Buffer.from(html).toString('base64'),\n      mimeType: 'text/html',\n      fileName: 'dashboard.html'\n    }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "7d4ca6d8-bc99-4c4f-8088-e24262f5ae57",
+      "name": "CrearHtml"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4d7a5361-609e-4032-972b-3b08cb7509c1",
+              "leftValue": "={{ $json.saldoenlibros }}",
+              "rightValue": "={{ $json.saldoAnterior }}",
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1120,
+        1568
+      ],
+      "id": "7886e3ae-6ee3-4ad3-a801-ea8a7c51894f",
+      "name": "IfBalance",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "let item = $('UpdateSaldoLibrosyAnterior').all();\nconst hayError = item.some(i => 'error' in i.json);\n\nif (hayError){\n  return [];  \n}\n\nreturn item;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        192
+      ],
+      "id": "f87619f3-cb0e-4cfb-9c46-bd0b278fa3f4",
+      "name": "SelectRun5",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input1 = $('getSaldoAnterioryActual').all();\nconst input2 = $('GetParametrosNormalizados6').all(); // reemplaza por el nombre real del segundo nodo\n\nconst maxLen = Math.max(input1.length, input2.length);\nconst resultado = [];\n\nfor (let idx = 0; idx < maxLen; idx++) {\n  const a = input1[idx]?.json || {};\n  const b = input2[idx]?.json || {};\n\n  resultado.push({\n    json: { ...a, ...b }\n  });\n}\n\nreturn resultado;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1344,
+        1568
+      ],
+      "id": "6a0007d5-cb17-4cdd-ab29-2656baae18cc",
+      "name": "getSaldos",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Añade el libro mayor anterior",
+              "fieldType": "file"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.5,
+      "position": [
+        -896,
+        1632
+      ],
+      "id": "48a62066-f85b-479c-bc6f-77c52e7d933c",
+      "name": "Upload libro mayor",
+      "webhookId": "e3ecde07-b31b-4406-b596-b1c78284ef2f"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {
+          "rawData": true
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -672,
+        1632
+      ],
+      "id": "ede74fb9-aeff-4621-9d2f-6b5d78bc2304",
+      "name": "ExtractLibroMayorAnteriorFromFile",
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "GetTotalDebito/CreditoAndSaldos": {
+      "main": [
+        [
+          {
+            "node": "UpdateIngresosBancariosInConsigNoContPend",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "UpdateGastosBancariosInRetirosNoContPend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "getUltimoDia": {
+      "main": [
+        [
+          {
+            "node": "getSaldoAnterioryActual",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "getFechaVerdadera",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "getTransaccionesContFechaActual",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "getFechaFormatoNormal": {
+      "main": [
+        [
+          {
+            "node": "getUltimoDia",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "getDatosSinMatchear",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "getSaldoAnterioryActual": {
+      "main": [
+        [
+          {
+            "node": "getSaldos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "getFechaFormatoNormal1": {
+      "main": [
+        [
+          {
+            "node": "GetValorNormalizado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "UpdateIngresosBancariosInConsigNoContPend": {
+      "main": [
+        [
+          {
+            "node": "UpdatePapelDeTrabajoConsig",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "getTransaccionesContViejas": {
+      "main": [
+        [
+          {
+            "node": "getDebitosContViejos",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "getCreditosContViejos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetTransaccionesUltimoDiaSinGastosBancarios": {
+      "main": [
+        [
+          {
+            "node": "getMovimientosSinCont",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "getTransaccionesContInNotMovimientos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "getTransaccionesContFechaActual": {
+      "main": [
+        [
+          {
+            "node": "getMovimientosSinCont",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "getTransaccionesContInNotMovimientos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "getMovimientosSinCont": {
+      "main": [
+        [
+          {
+            "node": "getDebitoSinCont",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "getCreditoSinCont",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "getDebitoSinCont": {
+      "main": [
+        [
+          {
+            "node": "updateNombreColumnas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "updateNombreColumnas": {
+      "main": [
+        [
+          {
+            "node": "updatePapelConsigConMov",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "UpdateGastosBancariosInRetirosNoContPend": {
+      "main": [
+        [
+          {
+            "node": "updatePapelDeTrabajoRetiros1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "UpdatePapelDeTrabajoConsig": {
+      "main": [
+        [
+          {
+            "node": "updateNombreColumnas1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "updateNombreColumnas1": {
+      "main": [
+        [
+          {
+            "node": "updatePapelConsigConMov",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "getCreditoSinCont": {
+      "main": [
+        [
+          {
+            "node": "updateNombreColumnas2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "updateNombreColumnas2": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "updatePapelDeTrabajoRetiros1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CleanNotes": {
+      "main": [
+        [
+          {
+            "node": "getFechaVerdadera",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "getDatosCompletosSinMatchear",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "getFechaVerdadera": {
+      "main": [
+        [
+          {
+            "node": "getTransaccionesContViejas",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "getTransaccionesContFechaActual",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetTransaccionesJson": {
+      "main": [
+        [
+          {
+            "node": "GetParametrosNormalizados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "getFechaFormatoNormal6": {
+      "main": [
+        [
+          {
+            "node": "getDatosSinMatchear",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "getDatosSinMatchear": {
+      "main": [
+        [
+          {
+            "node": "getDatosCompletosSinMatchear",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "updatePapelConsigConMov": {
+      "main": [
+        [
+          {
+            "node": "UpdatePapelDeTrabajoConsig1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetFechaFormatoMovimientos": {
+      "main": [
+        [
+          {
+            "node": "GetTransaccionesUltimoDiaSinGastosBancarios",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetParametrosNormalizados": {
+      "main": [
+        [
+          {
+            "node": "GetFechaFormatoMovimientos",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "GetTotalDebito/CreditoAndSaldos",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "UpdateSaldoLibrosyAnterior",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetParametrosNormalizados2": {
+      "main": [
+        [
+          {
+            "node": "getFechaFormatoNormal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetParametrosNormalizados3": {
+      "main": [
+        [
+          {
+            "node": "getFechaFormatoNormal1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetValorNormalizado": {
+      "main": [
+        [
+          {
+            "node": "CleanNotes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetParametrosNormalizados4": {
+      "main": [
+        [
+          {
+            "node": "GetFechaNormalizadaConsigNoContPendiente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetParametrosNormalizados5": {
+      "main": [
+        [
+          {
+            "node": "GetFechaNormalizadaRetirosNoContPend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetParametrosNormalizados6": {
+      "main": [
+        [
+          {
+            "node": "getSaldos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetParametrosNormalizados7": {
+      "main": [
+        [
+          {
+            "node": "getFechaFormatoNormal6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetParametrosNormalizados8": {
+      "main": [
+        [
+          {
+            "node": "GetFechaNormalizadaRetContPend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetParametrosNormalizados1": {
+      "main": [
+        [
+          {
+            "node": "GetFechaNormalizadaConsigContPend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "getDebitosContViejos": {
+      "main": [
+        [
+          {
+            "node": "UpdatePapelDeTrabajoConsig",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "getCreditosContViejos": {
+      "main": [
+        [
+          {
+            "node": "updatePapelDeTrabajoRetiros1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "getTransaccionesContInNotMovimientos": {
+      "main": [
+        [
+          {
+            "node": "getDebitoCont",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "getCreditosCont",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "getDebitoCont": {
+      "main": [
+        [
+          {
+            "node": "updateNombreColumnas3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "getCreditosCont": {
+      "main": [
+        [
+          {
+            "node": "updateNombreColumnas4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetFechaNormalizadaConsigContPend": {
+      "main": [
+        [
+          {
+            "node": "updatePapelDeTrabajoDebitosContPend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "updateNombreColumnas3": {
+      "main": [
+        [
+          {
+            "node": "SelectRun3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetFechaNormalizadaRetContPend": {
+      "main": [
+        [
+          {
+            "node": "updatePapelDeTrabajoConsigContPend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "updateNombreColumnas4": {
+      "main": [
+        [
+          {
+            "node": "SelectRun4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "getDatosCompletosSinMatchear": {
+      "main": [
+        [
+          {
+            "node": "updatePapelDeTrabajoRetiros",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "UpdatePapelDeTrabajoConsig1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload your file here": {
+      "main": [
+        [
+          {
+            "node": "ExtractLibroMayorFromFile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "ExtractConciliacionDiaFromFile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "ExtractConsigNoContPendienteFromFile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "ExtractMovimientosFromFile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "ExtractRetirosNoContPendFromFile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "ExtractRetContPendFromFile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "ExtractConsigContPendFromFile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "ExtractBalancesFromFiles",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "GetTransaccionesUltimoDiaSinGastosBancarios",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "getUltimoDia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ExtractMovimientosFromFile": {
+      "main": [
+        [
+          {
+            "node": "GetTransaccionesJson",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ExtractLibroMayorFromFile": {
+      "main": [
+        [
+          {
+            "node": "GetParametrosNormalizados2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ExtractConciliacionDiaFromFile": {
+      "main": [
+        [
+          {
+            "node": "GetParametrosNormalizados3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ExtractConsigNoContPendienteFromFile": {
+      "main": [
+        [
+          {
+            "node": "GetParametrosNormalizados4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ExtractRetirosNoContPendFromFile": {
+      "main": [
+        [
+          {
+            "node": "GetParametrosNormalizados5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ExtractRetContPendFromFile": {
+      "main": [
+        [
+          {
+            "node": "GetParametrosNormalizados8",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ExtractConsigContPendFromFile": {
+      "main": [
+        [
+          {
+            "node": "GetParametrosNormalizados1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ExtractBalancesFromFiles": {
+      "main": [
+        [
+          {
+            "node": "GetParametrosNormalizados6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "updatePapelDeTrabajoDebitosContPend": {
+      "main": [
+        [
+          {
+            "node": "getTransacciones",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "getTransaccionesSinBalance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "updatePapelDeTrabajoConsigContPend": {
+      "main": [
+        [
+          {
+            "node": "getTransacciones",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "getTransaccionesSinBalance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "UpdatePapelDeTrabajoConsig1": {
+      "main": [
+        [
+          {
+            "node": "SelectRun1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "updatePapelDeTrabajoRetiros": {
+      "main": [
+        [
+          {
+            "node": "SelectRun2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SelectRun1": {
+      "main": [
+        [
+          {
+            "node": "getTransacciones",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "getTransaccionesSinBalance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SelectRun2": {
+      "main": [
+        [
+          {
+            "node": "getTransacciones",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "getTransaccionesSinBalance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SelectRun3": {
+      "main": [
+        [
+          {
+            "node": "updatePapelDeTrabajoDebitosContPend",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "SelectRun4": {
+      "main": [
+        [
+          {
+            "node": "updatePapelDeTrabajoConsigContPend",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "updatePapelDeTrabajoRetiros",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetFechaNormalizadaConsigNoContPendiente": {
+      "main": [
+        [
+          {
+            "node": "UpdateIngresosBancariosInConsigNoContPend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetFechaNormalizadaRetirosNoContPend": {
+      "main": [
+        [
+          {
+            "node": "UpdateGastosBancariosInRetirosNoContPend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "UpdateSaldoLibrosyAnterior": {
+      "main": [
+        [
+          {
+            "node": "SelectRun5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File4": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "getTransaccionesSinBalance": {
+      "main": [
+        [
+          {
+            "node": "getTotales",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "getTransacciones": {
+      "main": [
+        [
+          {
+            "node": "Convert to File4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "getTotales": {
+      "main": [
+        [
+          {
+            "node": "CrearHtml",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "UpdateSaldoLibrosyAnterior",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CrearHtml": {
+      "main": [
+        [
+          {
+            "node": "Send a message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IfBalance": {
+      "main": [
+        [
+          {
+            "node": "UpdateSaldoLibrosyAnterior",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Upload libro mayor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SelectRun5": {
+      "main": [
+        [
+          {
+            "node": "getTransacciones",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "getSaldos": {
+      "main": [
+        [
+          {
+            "node": "IfBalance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload libro mayor": {
+      "main": [
+        [
+          {
+            "node": "ExtractLibroMayorAnteriorFromFile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ExtractLibroMayorAnteriorFromFile": {
+      "main": [
+        [
+          {
+            "node": "GetParametrosNormalizados7",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "44020a47-e968-4f77-a8c9-2f94d8000a98",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "ca444098d5a9a476009d55f682713ab2de425b32f19032461f8a4e5e59ec760e"
+  },
+  "nodeGroups": [],
+  "id": "Z8OxkTrsvZsRoHkZ",
+  "tags": []
+}
